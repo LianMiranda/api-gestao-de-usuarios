@@ -1,9 +1,20 @@
 const User = require("../models/User")
+const bcrypt = require("bcrypt");
+const { configDotenv } = require("dotenv");
+const jwt = require("jsonwebtoken");
+const pug = require('pug');
+const transporter  = require("../emails/transporter");
+const path = require("path");
+const validator = require('validator');
+const tokenService = require("../services/tokenService");
+const emailService = require("../services/emailService");
+configDotenv()
+
 
 class UserController{
 
     async create(req,res){
-        const {name, email, password} = req.body
+        const {name, email, password, profileId} = req.body
 
         if(!email){
             res.status(400).json({message: "Verifique se o email foi preenchido corretamente"})
@@ -17,17 +28,30 @@ class UserController{
             res.status(400).json({message: "Verifique se a senha foi preenchido corretamente"})
             return;
         }
-        else{
-            var emailExists = await User.findEmail(email) 
 
-            if(emailExists){
+        try {
+            var isEmailValid = await User.validateEmail(email)
+            var userExists = await User.findEmail(email) 
+
+            if(userExists){
                 res.status(406).json({message: "Já existe um usuário com esse email"})
                 return;
             }
 
-            await User.newUser(name, email, password)
-            res.status(200).json({message: "usuario criado"})
+            if(isEmailValid.status){
+                await User.newUser(name, email, password, profileId)
+                res.status(200).json({message: "usuario criado"})
+            }   
+            
+        } catch (error) {
+            if (error.message === "Formato de e-mail inválido" || error.message === "O domínio do e-mail é inválido") {
+                return res.status(400).json({ error: error.message });
+            }
+
+            console.log(error);
+            return res.status(500).json({ error: "Erro interno ao criar usuário" });
         }
+        
     }
 
     async findAll(req, res){
@@ -58,8 +82,8 @@ class UserController{
 
     async update(req, res){
         var id = req.params.id
-        var {email, name, role} = req.body
-        var result = await User.update(id, name, email, role);
+        var {email, name, profileId} = req.body
+        var result = await User.update(id, name, email, profileId);
 
         if(result){
             if(result.status){
@@ -81,6 +105,90 @@ class UserController{
             res.status(200).json({message: `usuario com id ${id} excluido com sucesso`})
         }else{
             res.status(406).json({error: result.err})
+        }
+    }
+
+    async login(req, res){
+        var {email, password} = req.body
+
+        var user = await User.findByEmail(email)
+
+        if (user) {
+            var result = await bcrypt.compare(password, user.password)
+            if(result){
+                var token = await tokenService.genToken(user, "2h");
+                res.status(200).json({status: result, token: token})
+            }else{
+                res.status(406).json({message: "Senha invalida"})
+            }
+        } else {
+            res.status(400).json({status: false})
+        }
+    }
+
+    //TODO: RECUPERAÇÃO DE SENHA
+     async sendEmailtoRecoverPassword(req, res){
+         var email = req.body.email;
+
+         if (!email || !validator.isEmail(email)) {
+            return res.status(400).json({ error: "Email inválido" });
+         }
+
+         var user = await User.findByEmail(email);
+
+          try { 
+              if (user) {
+                  const compiledFunction = pug.compileFile('./templates/recoverPassword.pug');
+
+                  var token = await tokenService.genToken(user, "15m")
+                  
+                  const html = compiledFunction({
+                      name: user.name,
+                      token: token 
+                    });
+                    
+                var send = await emailService.sendRecoverPasswordEmail(email, html);
+
+                if(send.status === 'success'){
+                    res.status(200).json({message: send.message, response: send.response})
+                }else if(send.status === 'failed'){
+                    res.status(404).json({message: send.message, response: send.response})
+                }
+
+            }else{
+                res.status(404).json({status: "failed", error: "Usuário não encontrado"})
+            }
+         } catch (error) {
+            res.status(500).json({status: "failed", message: "Erro interno ao enviar o email", error: error})
+        }
+     }
+
+    async changePassword(req, res){
+        var password = req.body.password;
+        var tokenRaw = req.headers['authorization']
+
+        if(tokenRaw){
+            try {
+                const bearer = tokenRaw.split(' ')
+                var token = bearer[1]
+
+                var isTokenValid = jwt.verify(token, process.env.SECRET);
+                
+                if(isTokenValid){
+                    var passwordRaw = password;
+                    await User.updatePassword(isTokenValid.id, passwordRaw)
+
+                    res.status(200).json({message: "Senha alterada com sucesso"})
+                }else{
+                    res.status(403).json({error: "token inválido"})
+                }
+            } catch (error) {
+                console.log(error);
+                res.status(403).json({message: "Token inválido", error: error})
+            }
+            
+        }else{
+            res.status(403).json({error: "token não encontrado"})
         }
     }
 }

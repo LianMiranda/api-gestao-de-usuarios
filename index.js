@@ -3,6 +3,7 @@ const express = require('express');
 const app = express()
 const router = require('./routes/routes');
 const { configDotenv } = require('dotenv');
+const { initializeProfiles } = require('./database/connection');
 configDotenv()
 
 app.use(bodyParser.urlencoded({extended: false}))

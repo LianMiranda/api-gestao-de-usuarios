@@ -1,14 +1,16 @@
 var knex = require("../database/connection");
-var bcrypt = require('bcrypt')
+var bcrypt = require('bcrypt');
+const dns = require('dns');
+const validator = require('validator');
 
 class User{
-    async newUser(name, email, password){
+    async newUser(name, email, password, profileId){
         try{
             var salt = bcrypt.genSaltSync(10)
             var passwordRaw = password;
             var passwordHash = await bcrypt.hash(passwordRaw, salt)
 
-            await knex.insert({name, email, password: passwordHash, role: 0}).table("user")
+            await knex.insert({name, email, password: passwordHash, profileId: profileId}).table("user")
         }catch(err){
             console.log(err);
         }
@@ -32,18 +34,17 @@ class User{
 
     async findAll(){
         try {
-            var users = await knex.select(["id","name",  "email", "role"]).table("user");      
+            var users = await knex.select(["id","name", "email", "profileId"]).table("user");      
             return users;
         } catch (error) {
             console.log(error);  
             return [];
         }
-
     }
 
     async findById(id){
         try {
-            var user = await knex.select(["id","name",  "email", "role"]).table("user").where({id: id})
+            var user = await knex.select(["id","name",  "email", "profileId"]).table("user").where({id: id})
 
             if (user.length > 0) {
                 return user[0];
@@ -57,7 +58,23 @@ class User{
         }
     }
 
-    async update(id, name, email, role){
+    async findByEmail(email){
+        try {
+            var user = await knex.select(["id","name", "email", "password", "profileId"]).table("user").where({email: email})
+
+            if (user.length > 0) {
+                return user[0];
+            } else {
+                return null;
+            }
+
+        } catch (error) {
+            console.log(error);  
+            return undefined;
+        }
+    }
+
+    async update(id, name, email, profileId){
         var user = await this.findById(id); 
 
         if(user){
@@ -78,8 +95,8 @@ class User{
                 updateUser.name = name
             }
 
-            if(role){
-                updateUser.role = role
+            if(profileId){
+                updateUser.profileId = profileId
             }
 
             try {
@@ -95,7 +112,7 @@ class User{
 
     async delete(id){
         var user = await this.findById(id);
-        
+
         if(user){
             try {
                 await knex.delete().where({id:id}).table("user")
@@ -107,6 +124,49 @@ class User{
             return{status: false, err: "Usuario não encontrado."}
         }
     }
+
+    async updatePassword(id, password){
+        var user = await this.findById(id)
+        if(user){
+            try {
+                var salt = bcrypt.genSaltSync(10)
+                var passwordRaw = password;
+                var passwordHash = await bcrypt.hash(passwordRaw, salt)
+
+                await knex.update({password: passwordHash}).where({id: id}).table("user")
+                return {status: true}
+            } catch (error) {
+                console.log(error);
+               return {status: false}
+            }
+        }else{
+            return{status: false, err: "Usuario não encontrado."}
+        }
+    }
+
+    async validateEmail(email) {
+        if (!validator.isEmail(email)) {
+          throw new Error("Formato de e-mail inválido");
+        }
+      
+        const domain = email.split("@")[1];
+      
+        const hasValidMx = await new Promise((resolve, reject) => {
+          dns.resolveMx(domain, (err, addresses) => {
+            if (err || !addresses || addresses.length === 0) {
+              resolve(false); // Domínio inválido
+            } else {
+              resolve(true); // Domínio válido
+            }
+          });
+        });
+      
+        if (!hasValidMx) {
+          throw new Error("O domínio do e-mail não aceita mensagens");
+        }
+      
+        return  {status: true}; // E-mail válido
+      }
 }
 
 module.exports = new User()
