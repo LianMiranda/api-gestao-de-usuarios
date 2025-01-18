@@ -1,9 +1,8 @@
-const User = require("../models/User")
+const User = require("../models/user")
 const bcrypt = require("bcrypt");
 const { configDotenv } = require("dotenv");
 const jwt = require("jsonwebtoken");
 const pug = require('pug');
-const transporter  = require("../emails/transporter");
 const path = require("path");
 const validator = require('validator');
 const tokenService = require("../services/tokenService");
@@ -14,13 +13,13 @@ configDotenv()
 class UserController{
 
     async create(req,res){
-        const {name, email, password, profileId} = req.body
+        const {firstName, lastName, email, password,birthday, profileImage, profileId} = req.body
 
         if(!email){
             res.status(400).json({message: "Verifique se o email foi preenchido corretamente"})
             return;
         }
-        if(!name){
+        if(!firstName || !lastName){
             res.status(400).json({message: "Verifique se o nome foi preenchido corretamente"})
             return;
         }
@@ -30,7 +29,7 @@ class UserController{
         }
 
         try {
-            var isEmailValid = await User.validateEmail(email)
+            var isEmailValid = await emailService.validateEmail(email)
             var userExists = await User.findEmail(email) 
 
             if(userExists){
@@ -39,7 +38,7 @@ class UserController{
             }
 
             if(isEmailValid.status){
-                await User.newUser(name, email, password, profileId)
+                await User.newUser(firstName, lastName, email, password,birthday, profileImage, profileId)
                 res.status(200).json({message: "usuario criado"})
             }   
             
@@ -47,7 +46,6 @@ class UserController{
             if (error.message === "Formato de e-mail inválido" || error.message === "O domínio do e-mail é inválido") {
                 return res.status(400).json({ error: error.message });
             }
-
             console.log(error);
             return res.status(500).json({ error: "Erro interno ao criar usuário" });
         }
@@ -82,17 +80,30 @@ class UserController{
 
     async update(req, res){
         var id = req.params.id
-        var {email, name, profileId} = req.body
-        var result = await User.update(id, name, email, profileId);
+        var {firstName, lastName, email, password,birthday, profileImage, profileId} = req.body
 
-        if(result){
-            if(result.status){
-                res.status(200).json({message: "Usuário atualizado"})
-            }else{
-                res.status(406).json(result);
+        try {
+            var isEmailValid = await emailService.validateEmail(email)
+            
+            if(isEmailValid.status){
+                var result = await User.update(id, firstName,lastName, email, password, birthday, profileImage, profileId);
+              
+                if(result){
+                    if(result.status){
+                        res.status(200).json({message: "Usuário atualizado"})
+                    }else{
+                        res.status(406).json(result);
+                    }
+                }else{
+                    res.status(406).json({message: "Usuário não encontrado"});
+                }    
+            }   
+        } catch (error) {
+            if (error.message === "Formato de e-mail inválido" || error.message === "O domínio do e-mail é inválido") {
+                return res.status(400).json({ message: error.message });
             }
-        }else{
-            res.status(406).json({error: "Erro no servidor"});
+
+            res.status(500).json({message: "Erro no servidor", error: error});
         }
     }
 

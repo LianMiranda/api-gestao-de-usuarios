@@ -11,7 +11,7 @@ function auth(req, res, next){
 
         try {
             var decoded = jwt.verify(token, process.env.SECRET)
-            if(decoded.profileId == 1){
+            if(decoded.profileId == 2){
                 next()
             }else{
                 return res.status(403).json({message: "Você não é um administrador!"})
